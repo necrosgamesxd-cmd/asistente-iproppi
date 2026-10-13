@@ -119,7 +119,7 @@ import pandas as pd  # noqa: E402
 df = pd.DataFrame([{
     "Código": u.get("code"),
     "Tipo": u.get("unit_type"),
-    "Precio lista (UF)": ind.uf(float(u.get("list_price_uf") or 0), 0),
+    "Precio lista (UF)": ind.uf(ind._num(u.get("list_price_uf")) or 0, 0),
     "Estado": {"AVAILABLE": "✅ Disponible", "RESERVED": "🔒 Reservada"}
               .get((u.get("status") or "").upper(), u.get("status")),
 } for u in unidades])

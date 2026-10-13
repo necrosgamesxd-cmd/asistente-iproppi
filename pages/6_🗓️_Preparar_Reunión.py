@@ -100,13 +100,13 @@ if st.button("🧮 Preparar todo con los datos de hoy", type="primary"):
     # precio del proyecto seleccionado en Portal, o del favorito en la ficha
     sel = st.session_state.get("proyecto_reunion")
     if sel and sel.get("precio"):
-        precio = float(sel["precio"])
+        precio = ind._num(sel["precio"])
         prep["proyecto_sel"] = sel
     elif proyecto_fav and portal:
         try:
             for p in portal.proyectos():
                 if fichas.plano(p["name"]) in fichas.plano(proyecto_fav):
-                    precio = float(p.get("price_from_uf") or 0) or None
+                    precio = ind._num(p.get("price_from_uf")) or None
                     prep["proyecto_sel"] = {"id": p["id"], "name": p["name"],
                                             "precio": precio}
                     break

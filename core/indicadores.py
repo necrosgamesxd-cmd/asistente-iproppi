@@ -322,8 +322,36 @@ def clp(pesos, dec=0):
     return f"{signo}${miles(abs(pesos), dec)}"
 
 
+def _num(x):
+    """Convierte a float tolerando strings numéricos; si no es número, devuelve None.
+
+    - Números se pasan tal cual.
+    - Strings: se trata el punto como decimal (formato del portal, ej. '2721.000')
+      y la coma como decimal chilena. Los miles se infieren por longitud si no
+      hay separador (ej. '2847' -> 2847.0, no 2.847.000).
+    """
+    if x is None or isinstance(x, bool):
+        return None
+    if isinstance(x, (int, float)):
+        return float(x)
+    s = str(x).strip().replace("UF", "").replace("$", "").strip()
+    if not s:
+        return None
+    try:
+        if "," in s:      # coma decimal chilena: 2.804,5 -> 2804.5
+            return float(s.replace(".", "").replace(",", "."))
+        if "." in s:      # punto decimal: 2721.000 -> 2721.0
+            return float(s)
+        return float(s)   # sin separador: '2847' -> 2847.0
+    except (TypeError, ValueError):
+        return None
+
+
 def uf(monto_uf, dec=0):
-    """UF: 2804.23 -> '2.804 UF'."""
+    """UF: 2804.23 -> '2.804 UF'. Acepta números o strings numéricos."""
+    monto_uf = _num(monto_uf)
+    if monto_uf is None:
+        return "—"
     signo = "-" if monto_uf < 0 else ""
     return f"{signo}{miles(abs(monto_uf), dec)} UF"
 
