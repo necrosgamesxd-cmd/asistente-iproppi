@@ -7,6 +7,7 @@ Modelos (oct 2026, key nexor):
   (llama-3.3-70b-versatile fue retirado por Groq)
 """
 import json
+import re
 
 import requests
 
@@ -50,6 +51,45 @@ def completar(api_key, mensajes, modelo="qwen/qwen3.8-27b",
         return datos["choices"][0]["message"]["content"]
     except (KeyError, IndexError):
         raise LLMError(f"Respuesta inesperada: {json.dumps(datos)[:200]}")
+
+
+EXTRACTOR_PROMPT = """Eres un extractor de notas de clientes inmobiliarios.
+Recibirás dos bloques: la FICHA actual del cliente y el ÚLTIMO MENSAJE del asesor.
+Tu única tarea: detectar si el mensaje contiene UN dato nuevo, explícito y verificable
+del cliente que NO esté ya en la ficha (hijos, mascotas, renta o ahorro nuevo, comuna,
+plazo, urgencia, preferencias...).
+
+Si hay dato nuevo, responde EXACTAMENTE con esta línea y nada más:
+[[NOTA: el dato en una frase breve, sin inventar ni agregar interpretación]]
+
+Si NO hay dato nuevo, o el dato ya está en la ficha, responde EXACTAMENTE:
+[[SIN NOTA]]
+
+Nunca respondas otra cosa fuera de esos dos formatos.
+"""
+
+
+def extraer_nota(api_key, ficha_txt, mensaje_asesor,
+                 modelo="openai/gpt-oss-20b"):
+    """Clasifica si el último mensaje trae un dato nuevo del cliente.
+
+    -> str del interior de [[NOTA: ...]] o None.
+    Llamada chica y barata; determinista frente a pedirle al modelo de chat
+    que cuelgue el bloque él mismo.
+    """
+    salida = completar(
+        api_key,
+        [{"role": "system", "content": EXTRACTOR_PROMPT},
+         {"role": "user",
+          "content": f"FICHA:\n{(ficha_txt or '(vacía)')[:4000]}\n\n"
+                     f"ÚLTIMO MENSAJE:\n{mensaje_asesor[:2000]}"}],
+        modelo=modelo, temperatura=0, max_tokens=160,
+    )
+    m = re.search(r"\[\[NOTA:\s*(.+?)\]\]", salida, re.S)
+    if m:
+        nota = m.group(1).strip()
+        return nota if nota.upper() != "SIN NOTA" else None
+    return None
 
 
 def stream(api_key, mensajes, modelo="qwen/qwen3.8-27b",
@@ -104,6 +144,54 @@ def contexto_indicadores(ind):
     return "Indicadores de hoy" + extra + ": " + "; ".join(lineas)
 
 
+def contexto_catalogo(proyectos):
+    """Catálogo del portal como texto numerado para el system prompt.
+
+    Numeración estable [1]..[N] (solo publicados) — el modelo devuelve los
+    números elegidos en `[[ELEGIDOS: a, b, c]]` y la UI los mapea a IDs.
+    Returns (texto, lista_proyectos_en_el_mismo_orden).
+    """
+    publicados = [p for p in proyectos if p.get("is_published")]
+    publicados = sorted(publicados, key=lambda p: (p.get("location") or "",
+                                                   p.get("name") or ""))
+    filas = []
+    for i, p in enumerate(publicados, start=1):
+        precio = _num_texto(p.get("price_from_uf"))
+        promo = p.get("promotion_price_from_uf")
+        partes = [f"[{i}] {p.get('name')} — {p.get('location') or '—'}",
+                  f"desde {precio} UF" if precio else "precio no publicado"]
+        if promo and _num_texto(promo):
+            partes.append(f"**en promoción desde {_num_texto(promo)} UF**")
+        dorm = p.get("bedrooms")
+        area = p.get("usable_area_m2")
+        if dorm:
+            partes.append(f"{int(dorm)} dorm" + (f"/{area} m²" if area else ""))
+        if p.get("stage_label"):
+            partes.append(f"etapa: {p['stage_label']}")
+        if p.get("active_promotion"):
+            nom = (p["active_promotion"] or {}).get("name") if isinstance(
+                p["active_promotion"], dict) else p["active_promotion"]
+            if nom:
+                partes.append(f"promo activa: {nom}")
+        if p.get("reservation_clp"):
+            partes.append(f"reserva ${int(p['reservation_clp']):,}".replace(",", "."))
+        filas.append("; ".join(partes))
+    texto = (f"CATÁLOGO IPPROppi — {len(filas)} proyectos publicados "
+             f"(número [i] estable, úsalo para elegir):\n" + "\n".join(filas))
+    return texto, publicados
+
+
+def _num_texto(v):
+    """'2721.000' -> '2721' (los precios del portal vienen como string)."""
+    if v is None:
+        return None
+    try:
+        f = float(str(v).replace(",", ".")) if "," in str(v) else float(v)
+        return f"{f:,.0f}".replace(",", ".")
+    except (TypeError, ValueError):
+        return None
+
+
 SYSTEM_PROMPT = """Eres el copiloto de Patricio Romo, broker de iproppi (11 años,
 +800.000 UF gestionadas al mes). Estás dentro de su app interna de asesoría.
 
@@ -120,4 +208,18 @@ Estilo:
 - Menciona iproppi con sus cifras solo cuando aporte (11 años, +800.000 UF/mes).
 - Máximo 2 menciones de cifras por conversación salvo petición explícita.
 - Si falta un dato para el número (UF, tasa, pie), dilo y entrega el cálculo con el dato asumido marcado.
+
+RECOMENDAR PROPIEDADES (catálogo)
+- Si entregaste catálogo, cuando te pidan propiedades/departmentos para un cliente: filtra SOLO por los números [i] del catálogo (nunca inventes proyectos ni precios).
+- Criterios en orden: (1) comuna/zona objetivo de la ficha, (2) presupuesto vs capacidad de crédito calculada, (3) tipo de propiedad (dormitorios), (4) disponibilidad/entrega, (5) promoción vigente.
+- Responde con exactamente 3 opciones: tabla comparativa (proyecto, comuna, desde UF, dorm, entrega, por qué calza) + 2-3 líneas de justificación de tu orden.
+- TERMINA SIEMPRE la recomendación con una línea exacta, sin texto después:
+  [[ELEGIDOS: 3,17,29]]
+  (los números [i] de tus 3 elegidos, en tu orden de preferencia; la app verificará el stock real).
+
+NOTAS DE CLIENTE
+- Si el usuario te cuenta datos nuevos del cliente (hijos, mascotas, cambio de renta, zona, plazos...) y hay una ficha adjunta, termina tu respuesta con UNA línea exacta:
+  [[NOTA: dato nuevo en una frase, sin inventar nada]]
+- La nota solo si es información nueva y explícita del cliente; nunca repitas lo que ya está en la ficha ni inventes. La app te pedirá confirmación antes de guardarla.
+- En texto normal no uses corchetes dobles [[...]] para nada más.
 """

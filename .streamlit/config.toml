@@ -1,6 +1,15 @@
 [theme]
-base = "light"
-primaryColor = "#1F4E78"
+# Modo oscuro por defecto.
+# Para el modo claro: cambia base = "light" y elimina backgroundColor,
+# secondaryBackgroundColor y textColor (usa los valores por defecto de Streamlit).
+# La preferencia también se puede cambiar sin tocar el código desde la app:
+#   ⚙️ Settings → Theme → Light / Dark / Auto (se guarda en tu navegador).
+base = "dark"
+primaryColor = "#2F7BD3"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1E2530"
+textColor = "#FAFAFA"
+font = "sans serif"
 
 [server]
 headless = true

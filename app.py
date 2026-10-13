@@ -11,6 +11,8 @@ st.set_page_config(page_title="Asistente Inmobiliario", page_icon="🏠",
                    layout="wide")
 
 st.title("🏠 Asistente Inmobiliario — iproppi")
+st.caption("🌙 Tema oscuro activo — para cambiarlo: ⚙️ Settings → Theme "
+           "(Light/Dark/Auto; se guarda en tu navegador).")
 
 portal = sidebar_portal()
 sync.barra_lateral(almacen())

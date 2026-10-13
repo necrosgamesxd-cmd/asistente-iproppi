@@ -188,6 +188,34 @@ def encontrar(nombre, opciones):
     return None
 
 
+def agregar_nota(texto, nota, fecha):
+    """Inserta una nota fechada en la sección 6 (Notas y contexto) de la ficha.
+
+    La nota queda arriba de la sección para que sea lo primero que se vea.
+    Si la sección no existe, se agrega al final. -> ficha completa (str)
+    """
+    nota = re.sub(r"\s+", " ", (nota or "").strip())
+    if not nota:
+        return texto
+    linea = f"- **{fecha} (chat):** {nota}"
+    lineas = (texto or "").splitlines()
+    # ¿existe una sección 6 o alguna "Notas"?
+    for i, ln in enumerate(lineas):
+        if re.match(r"^##\s*6\.", ln) or re.match(r"^##\s*.*notas", ln, re.I):
+            insertar = i + 1
+            # salta líneas vacías y el marcador de plantilla en itálica
+            while (insertar < len(lineas)
+                   and (not lineas[insertar].strip()
+                        or lineas[insertar].strip().startswith("*("))):
+                insertar += 1
+            lineas.insert(insertar, linea)
+            lineas.insert(insertar + 1, "")
+            return "\n".join(lineas)
+    # sin sección de notas: agrega al final
+    separador = "" if (texto or "").endswith("\n") else "\n"
+    return (texto or "") + separador + f"\n## 6. Notas y contexto\n\n{linea}\n"
+
+
 # --------------------------------------------------------------- almacén base
 class AlmacenError(Exception):
     def __init__(self, mensaje, conflicto=False):
