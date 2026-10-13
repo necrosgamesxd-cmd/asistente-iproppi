@@ -23,27 +23,61 @@ class LLMError(Exception):
     pass
 
 
-def completar(api_key, mensajes, modelo="qwen/qwen3.8-27b",
+def _como_lista(claves):
+    """Acepta str o lista -> lista limpia de keys."""
+    if isinstance(claves, str):
+        claves = [claves]
+    return [k for k in (claves or []) if k]
+
+
+def _pedir(claves, payload, timeout=90, stream=False):
+    """POST con rotación: si una key da 429 (rate limit), intenta la siguiente.
+
+    -> requests.Response (aún sin leer el cuerpo; en stream=True el 429
+    llega en los headers, así que la rotación funciona igual).
+    """
+    claves = _como_lista(claves)
+    if not claves:
+        raise LLMError("Falta GROQ_API_KEY / GROQ_API_KEYS en los secrets.")
+    ultimo = None
+    for i, key in enumerate(claves):
+        try:
+            r = requests.post(
+                URL,
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"},
+                json=payload, timeout=timeout, stream=stream,
+            )
+        except requests.RequestException as e:
+            ultimo = LLMError(f"Sin respuesta de Groq ({e.__class__.__name__}).")
+            continue
+        if r.status_code == 429 and len(claves) > 1:
+            # rate limit de esta key: pasa a la siguiente (si hay)
+            if i == len(claves) - 1:
+                ultimo = LLMError(
+                    f"Límite de uso en TODAS las {len(claves)} keys (429): "
+                    "espera un minuto o añade más keys en los secrets.")
+            else:
+                ultimo = LLMError(
+                    f"429 en key {i + 1} de {len(claves)} — probando la siguiente…")
+            continue
+        return r
+    raise ultimo or LLMError("Sin keys de Groq disponibles.")
+
+
+def completar(claves, mensajes, modelo="qwen/qwen3.8-27b",
               temperatura=0.4, max_tokens=1600):
-    """Una completación no-streaming. -> str"""
-    if not api_key:
-        raise LLMError("Falta GROQ_API_KEY en los secrets de la app.")
-    try:
-        r = requests.post(
-            URL,
-            headers={"Authorization": f"Bearer {api_key}",
-                     "Content-Type": "application/json"},
-            json={"model": modelo, "messages": mensajes,
-                  "temperature": temperatura, "max_tokens": max_tokens},
-            timeout=90,
-        )
-    except requests.RequestException as e:
-        raise LLMError(f"Sin respuesta de Groq ({e.__class__.__name__}).")
+    """Una completación no-streaming (con rotación de keys). -> str"""
+    r = _pedir(claves, {"model": modelo, "messages": mensajes,
+                        "temperature": temperatura, "max_tokens": max_tokens})
     if r.status_code == 401:
-        raise LLMError("GROQ_API_KEY inválida (401).")
+        raise LLMError("Todas las GROQ_API_KEY inválidas (401).")
     if r.status_code == 404:
-        raise LLMError(f"El modelo '{modelo}' no existe en esta key (404): "
+        raise LLMError(f"El modelo '{modelo}' no existe (404): "
                        f"elige otro en el selector.")
+    if r.status_code == 429:
+        raise LLMError("Límite de uso en TODAS las keys (429): espera un "
+                       "minuto o añade más keys en los secrets.")
     if not r.ok:
         raise LLMError(f"Groq HTTP {r.status_code}: {r.text[:200]}")
     datos = r.json()
@@ -69,7 +103,7 @@ Nunca respondas otra cosa fuera de esos dos formatos.
 """
 
 
-def extraer_nota(api_key, ficha_txt, mensaje_asesor,
+def extraer_nota(claves, ficha_txt, mensaje_asesor,
                  modelo="openai/gpt-oss-20b"):
     """Clasifica si el último mensaje trae un dato nuevo del cliente.
 
@@ -92,27 +126,18 @@ def extraer_nota(api_key, ficha_txt, mensaje_asesor,
     return None
 
 
-def stream(api_key, mensajes, modelo="qwen/qwen3.8-27b",
+def stream(claves, mensajes, modelo="qwen/qwen3.8-27b",
            temperatura=0.4, max_tokens=1600):
-    """Generador de trozos de texto (SSE). Si falla, relanza LLMError."""
-    if not api_key:
-        raise LLMError("Falta GROQ_API_KEY en los secrets de la app.")
-    try:
-        r = requests.post(
-            URL,
-            headers={"Authorization": f"Bearer {api_key}",
-                     "Content-Type": "application/json"},
-            json={"model": modelo, "messages": mensajes, "stream": True,
-                  "temperature": temperatura, "max_tokens": max_tokens},
-            timeout=120, stream=True,
-        )
-    except requests.RequestException as e:
-        raise LLMError(f"Sin respuesta de Groq ({e.__class__.__name__}).")
+    """Generador de trozos de texto (SSE), con rotación de keys. -> Iterator[str]"""
+    r = _pedir(claves, {"model": modelo, "messages": mensajes, "stream": True,
+                        "temperature": temperatura, "max_tokens": max_tokens},
+               timeout=120, stream=True)
+    if r.status_code == 404:
+        raise LLMError(f"Modelo '{modelo}' no disponible (404).")
+    if r.status_code == 429:
+        raise LLMError("Límite de uso en TODAS las keys (429).")
     if not r.ok:
-        detalle = r.text[:200]
-        if r.status_code == 404:
-            raise LLMError(f"Modelo '{modelo}' no disponible (404).")
-        raise LLMError(f"Groq HTTP {r.status_code}: {detalle}")
+        raise LLMError(f"Groq HTTP {r.status_code}: {r.text[:200]}")
 
     def generar():
         for linea in r.iter_lines(decode_unicode=True):

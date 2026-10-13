@@ -19,16 +19,24 @@ sync.barra_lateral(store)
 portal = sidebar_portal()
 
 
-def api_key():
+def claves_groq():
+    """Todas las keys de Groq de los secrets (para rotar si una da 429).
+
+    Acepta GROQ_API_KEYS (coma o espacios) y/o GROQ_API_KEY.
+    """
     try:
-        return st.secrets.get("GROQ_API_KEY")
+        bruto = (st.secrets.get("GROQ_API_KEYS") or "") + " " + \
+                (st.secrets.get("GROQ_API_KEY") or "")
     except Exception:  # noqa: BLE001
-        return None
+        return []
+    import re as _re
+    return [k for k in _re.split(r"[,\s]+", bruto.strip()) if k.startswith("gsk_")]
 
 
-key = api_key()
-if not key:
-    st.error("Falta `GROQ_API_KEY` en los secrets de la app "
+claves = claves_groq()
+if not claves:
+    st.error("Falta `GROQ_API_KEY` (o `GROQ_API_KEYS`, varias separadas por "
+             "coma) en los secrets de la app "
              "(Settings → Advanced settings → Secrets).")
     st.stop()
 
@@ -116,7 +124,7 @@ if prompt:
     with st.chat_message("assistant", avatar="🤖"):
         try:
             salida = st.write_stream(
-                llm.stream(key, mensajes, modelo=modelo))
+                llm.stream(claves, mensajes, modelo=modelo))
         except llm.LLMError as e:
             salida = None
             st.error(str(e))
@@ -138,7 +146,7 @@ if prompt:
         # bloque [[NOTA]], así que una llamada chica lo detecta siempre
         if cliente_ctx and not st.session_state.get("nota_pendiente"):
             try:
-                nota = llm.extraer_nota(key, store.leer(cliente_ctx), prompt)
+                nota = llm.extraer_nota(claves, store.leer(cliente_ctx), prompt)
                 if nota:
                     st.session_state["nota_pendiente"] = {
                         "cliente": cliente_ctx, "nota": nota}
