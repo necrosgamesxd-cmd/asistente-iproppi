@@ -1,0 +1,10 @@
+# Entorno — nunca subir a git
+.venv/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+
+# Datos locales
+datos/brochures/*
+!datos/brochures/.gitkeep
+.DS_Store
