@@ -51,6 +51,7 @@ def _pedir(claves, payload, timeout=90, stream=False):
         except requests.RequestException as e:
             ultimo = LLMError(f"Sin respuesta de Groq ({e.__class__.__name__}).")
             continue
+        r.encoding = "utf-8"  # el SSE de Groq viene sin charset en el header
         if r.status_code == 429 and len(claves) > 1:
             # rate limit de esta key: pasa a la siguiente (si hay)
             if i == len(claves) - 1:
@@ -140,8 +141,14 @@ def stream(claves, mensajes, modelo="qwen/qwen3.8-27b",
         raise LLMError(f"Groq HTTP {r.status_code}: {r.text[:200]}")
 
     def generar():
-        for linea in r.iter_lines(decode_unicode=True):
-            if not linea or not linea.startswith("data:"):
+        # Groq manda el SSE como text/event-stream SIN charset; requests asume
+        # ISO-8859-1 y rompe ñ/acentos ("reuniÃ³n"). Decodificamos en UTF-8.
+        for linea in r.iter_lines():
+            if not linea:
+                continue
+            if isinstance(linea, bytes):
+                linea = linea.decode("utf-8", errors="replace")
+            if not linea.startswith("data:"):
                 continue
             cuerpo = linea[5:].strip()
             if cuerpo == "[DONE]":
