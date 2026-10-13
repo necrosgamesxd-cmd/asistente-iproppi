@@ -57,8 +57,9 @@ En [share.streamlit.io](https://share.streamlit.io/):
 2. **Advanced settings → Secrets** y pega:
 
 ```toml
-# Varias keys de Groq separadas por coma (rotación si una da 429)
-GROQ_API_KEYS = "gsk_primera, gsk_segunda"   # ver paso 5
+# Rotación de keys LLM (si una da 429 se usa la siguiente):
+# gsk_… = Groq gratis · sk-or-… = OpenRouter (solo modelos :free)
+GROQ_API_KEYS = "gsk_primera, gsk_segunda, sk-or-v1-tercera"
 GITHUB_REPO  = "USUARIO/clientes-iproppi"
 GITHUB_PAT   = "github_pat_..."
 ```

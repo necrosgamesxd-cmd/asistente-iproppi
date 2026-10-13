@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Chat LLM vía Groq (API compatible OpenAI, sin SDK — requests basta).
+"""Chat LLM vía Groq + OpenRouter (API compatible OpenAI, sin SDK).
 
-Modelos (oct 2026, key nexor):
+Modelos (oct 2026):
   - qwen/qwen3.8-27b      → chat rápido (default)
   - openai/gpt-oss-120b   → análisis profundo
+  - openai/gpt-oss-20b    → extracción de notas
   (llama-3.3-70b-versatile fue retirado por Groq)
+
+Rotación de claves: GROQ_API_KEYS puede mezclar keys `gsk_*` (Groq) y
+`sk-or-*` (OpenRouter) — si una da 429 o se agota, se pasa a la siguiente.
+OpenRouter se llama con reasoning desactivado (si no, el modelo "piensa"
+todos los tokens y devuelve content vacío).
 """
 import json
 import re
@@ -12,11 +18,27 @@ import re
 import requests
 
 URL = "https://api.groq.com/openai/v1/chat/completions"
+URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 MODELOS = [
     ("qwen/qwen3.8-27b", "Qwen 3.8B — rápido (chat)"),
     ("openai/gpt-oss-120b", "GPT-OSS 120B — análisis profundo"),
     ("openai/gpt-oss-20b", "GPT-OSS 20B — equilibrado"),
 ]
+
+
+def claves_desde_secrets(secrets):
+    """Todas las keys LLM de los secrets (para rotar si una da 429).
+
+    Acepta GROQ_API_KEYS (coma o espacios) con keys `gsk_*` (Groq) y
+    `sk-or-*` (OpenRouter), más GROQ_API_KEY. -> [str]
+    """
+    try:
+        bruto = ((secrets or {}).get("GROQ_API_KEYS") or "") + " " + \
+                ((secrets or {}).get("GROQ_API_KEY") or "")
+    except Exception:  # noqa: BLE001
+        return []
+    return [k for k in re.split(r"[,\s]+", bruto.strip())
+            if k.startswith(("gsk_", "sk-or-"))]
 
 
 class LLMError(Exception):
@@ -30,62 +52,120 @@ def _como_lista(claves):
     return [k for k in (claves or []) if k]
 
 
+# Modelos gratuitos de OpenRouter equivalentes a los de Groq (la key free
+# solo debe usar `:free` — jamás modelos de pago). Se prueba el primero y,
+# si el proveedor upstream lo tiene con 429, el siguiente.
+MODELOS_OPENROUTER = {
+    "qwen/qwen3.8-27b": [
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+    ],
+    "openai/gpt-oss-120b": [
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+    ],
+    "openai/gpt-oss-20b": [
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+    ],
+}
+
+
+def _intentos(claves, modelo):
+    """-> [(url, key, modelo_a_usar)] en orden de preferencia.
+
+    Groq primero (keys propias), OpenRouter free después. Un modelo que no
+    esté en MODELOS_OPENROUTER solo pasa a OpenRouter si ya es ':free',
+    para no gastar crédito de pago.
+    """
+    rutas = []
+    for key in _como_lista(claves):
+        if key.startswith("gsk_"):
+            rutas.append((URL, key, modelo))
+        elif key.startswith("sk-or-"):
+            libres = MODELOS_OPENROUTER.get(modelo)
+            if not libres and modelo.endswith(":free"):
+                libres = [modelo]
+            for m in (libres or []):
+                rutas.append((URL_OPENROUTER, key, m))
+    return rutas
+
+
 def _pedir(claves, payload, timeout=90, stream=False):
-    """POST con rotación: si una key da 429 (rate limit), intenta la siguiente.
+    """POST con rotación: 429 (o caída) → siguiente ruta (key/modelo).
 
     -> requests.Response (aún sin leer el cuerpo; en stream=True el 429
     llega en los headers, así que la rotación funciona igual).
     """
-    claves = _como_lista(claves)
-    if not claves:
-        raise LLMError("Falta GROQ_API_KEY / GROQ_API_KEYS en los secrets.")
+    rutas = _intentos(claves, payload.get("model"))
+    if not rutas:
+        raise LLMError("Sin rutas LLM: añade GROQ_API_KEYS (gsk_… o "
+                       "sk-or-…) en los secrets.")
     ultimo = None
-    for i, key in enumerate(claves):
+    for i, (url, key, mdl) in enumerate(rutas):
+        cuerpo = dict(payload)
+        cuerpo["model"] = mdl
+        if url == URL_OPENROUTER:
+            # sin esto el modelo "piensa" todos los tokens y devuelve
+            # content vacío
+            cuerpo["reasoning"] = {"enabled": False}
         try:
             r = requests.post(
-                URL,
+                url,
                 headers={"Authorization": f"Bearer {key}",
-                         "Content-Type": "application/json"},
-                json=payload, timeout=timeout, stream=stream,
+                         "Content-Type": "application/json",
+                         "X-Title": "Asistente iproppi"},
+                json=cuerpo, timeout=timeout, stream=stream,
             )
         except requests.RequestException as e:
-            ultimo = LLMError(f"Sin respuesta de Groq ({e.__class__.__name__}).")
+            ultimo = LLMError(f"Sin respuesta del proveedor "
+                              f"({e.__class__.__name__}).")
             continue
-        r.encoding = "utf-8"  # el SSE de Groq viene sin charset en el header
-        if r.status_code == 429 and len(claves) > 1:
-            # rate limit de esta key: pasa a la siguiente (si hay)
-            if i == len(claves) - 1:
-                ultimo = LLMError(
-                    f"Límite de uso en TODAS las {len(claves)} keys (429): "
-                    "espera un minuto o añade más keys en los secrets.")
-            else:
-                ultimo = LLMError(
-                    f"429 en key {i + 1} de {len(claves)} — probando la siguiente…")
+        r.encoding = "utf-8"  # el SSE viene sin charset en el header
+        if r.status_code == 429 and i < len(rutas) - 1:
+            # rate limit de esta ruta: pasa a la siguiente
+            ultimo = LLMError(f"429 en ruta {i + 1} de {len(rutas)} — "
+                              "probando la siguiente…")
             continue
+        if r.ok and not stream and i < len(rutas) - 1:
+            # respuesta200 pero SIN contenido (gpt-oss en Groq falla así a
+            # veces): también cuenta como fallo de ruta → rotación
+            try:
+                cont = r.json()["choices"][0]["message"].get("content")
+            except Exception:  # noqa: BLE001
+                cont = "json"
+            if not (cont or "").strip():
+                ultimo = LLMError(f"Respuesta vacía en ruta {i + 1} de "
+                                  f"{len(rutas)} — probando la siguiente…")
+                continue
         return r
-    raise ultimo or LLMError("Sin keys de Groq disponibles.")
+    raise ultimo or LLMError("Sin rutas LLM disponibles.")
 
 
 def completar(claves, mensajes, modelo="qwen/qwen3.8-27b",
               temperatura=0.4, max_tokens=1600):
-    """Una completación no-streaming (con rotación de keys). -> str"""
+    """Una completación no-streaming (con rotación de rutas). -> str"""
     r = _pedir(claves, {"model": modelo, "messages": mensajes,
                         "temperature": temperatura, "max_tokens": max_tokens})
     if r.status_code == 401:
-        raise LLMError("Todas las GROQ_API_KEY inválidas (401).")
+        raise LLMError("Key LLM inválida (401) — revisa GROQ_API_KEYS.")
     if r.status_code == 404:
         raise LLMError(f"El modelo '{modelo}' no existe (404): "
                        f"elige otro en el selector.")
     if r.status_code == 429:
-        raise LLMError("Límite de uso en TODAS las keys (429): espera un "
+        raise LLMError("Límite de uso en TODAS las rutas (429): espera un "
                        "minuto o añade más keys en los secrets.")
     if not r.ok:
-        raise LLMError(f"Groq HTTP {r.status_code}: {r.text[:200]}")
+        raise LLMError(f"HTTP {r.status_code}: {r.text[:200]}")
     datos = r.json()
     try:
-        return datos["choices"][0]["message"]["content"]
+        texto = datos["choices"][0]["message"].get("content")
     except (KeyError, IndexError):
         raise LLMError(f"Respuesta inesperada: {json.dumps(datos)[:200]}")
+    if texto is None:
+        raise LLMError("El modelo devolvió vacío (¿tokens de razonamiento?): "
+                       "reintenta o baja max_tokens.")
+    return texto
 
 
 EXTRACTOR_PROMPT = """Eres un extractor de notas de clientes inmobiliarios.
@@ -113,7 +193,7 @@ def extraer_nota(claves, ficha_txt, mensaje_asesor,
     que cuelgue el bloque él mismo.
     """
     salida = completar(
-        api_key,
+        claves,
         [{"role": "system", "content": EXTRACTOR_PROMPT},
          {"role": "user",
           "content": f"FICHA:\n{(ficha_txt or '(vacía)')[:4000]}\n\n"
@@ -136,9 +216,9 @@ def stream(claves, mensajes, modelo="qwen/qwen3.8-27b",
     if r.status_code == 404:
         raise LLMError(f"Modelo '{modelo}' no disponible (404).")
     if r.status_code == 429:
-        raise LLMError("Límite de uso en TODAS las keys (429).")
+        raise LLMError("Límite de uso en TODAS las rutas (429).")
     if not r.ok:
-        raise LLMError(f"Groq HTTP {r.status_code}: {r.text[:200]}")
+        raise LLMError(f"HTTP {r.status_code}: {r.text[:200]}")
 
     def generar():
         # Groq manda el SSE como text/event-stream SIN charset; requests asume

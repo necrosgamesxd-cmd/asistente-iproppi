@@ -2,6 +2,7 @@
 """💬 Chat con el asistente (Groq) — notas de cliente y recomendaciones."""
 import datetime as dt
 import re
+import time
 
 import streamlit as st
 
@@ -9,6 +10,7 @@ from core import fichas
 from core import indicadores as ind
 from core import iproppi_api as api
 from core import llm
+from core import proyectos as proj
 from core import sync
 from core.ui import almacen, sidebar_portal
 
@@ -18,22 +20,12 @@ store = almacen()
 sync.barra_lateral(store)
 portal = sidebar_portal()
 
+try:
+    _secrets = st.secrets
+except Exception:  # noqa: BLE001
+    _secrets = {}
 
-def claves_groq():
-    """Todas las keys de Groq de los secrets (para rotar si una da 429).
-
-    Acepta GROQ_API_KEYS (coma o espacios) y/o GROQ_API_KEY.
-    """
-    try:
-        bruto = (st.secrets.get("GROQ_API_KEYS") or "") + " " + \
-                (st.secrets.get("GROQ_API_KEY") or "")
-    except Exception:  # noqa: BLE001
-        return []
-    import re as _re
-    return [k for k in _re.split(r"[,\s]+", bruto.strip()) if k.startswith("gsk_")]
-
-
-claves = claves_groq()
+claves = llm.claves_desde_secrets(_secrets)
 if not claves:
     st.error("Falta `GROQ_API_KEY` (o `GROQ_API_KEYS`, varias separadas por "
              "coma) en los secrets de la app "
@@ -41,7 +33,7 @@ if not claves:
     st.stop()
 
 # ---------------------------------------------------------------- controles
-c = st.columns([2, 2, 1])
+c = st.columns([2, 3, 1])
 modelo = c[0].selectbox("Modelo", [m for m, _ in llm.MODELOS],
                         format_func=lambda m: dict(llm.MODELOS)[m])
 with c[1]:
@@ -50,6 +42,10 @@ with c[1]:
                         disabled=not portal,
                         help="Conecta el portal en la barra lateral para "
                              "activarlo (habilita '3 propiedades para X')")
+    con_fichas = st.toggle(
+        "Contexto: fichas de proyectos", value=True,
+        help="Cuando nombras un proyecto (o elige [[ELEGIDOS]]), el chat "
+             "recibe su ficha analizada con brochure y ventajas")
 with c[2]:
     st.write("")
     st.write("")
@@ -103,6 +99,19 @@ def system_prompt():
     proyecto = st.session_state.get("proyecto_reunion")
     if proyecto:
         partes.append(f"Proyecto seleccionado en el portal: {proyecto}")
+    if con_fichas:
+        ultimo_usuario = next(
+            (m["content"] for m in reversed(st.session_state["chat"])
+             if m["role"] == "user"), "")
+        try:
+            ctx = proj.contexto_fichas(
+                ultimo_usuario, proj.almacen_desde_secrets(_secrets),
+                elegidos=st.session_state.get("ultimo_elegidos"),
+                catalogo=catalogo_lista if con_cat else None)
+        except Exception:  # noqa: BLE001 — el contexto es best-effort
+            ctx = ""
+        if ctx:
+            partes.append(ctx)
     return "\n\n".join(partes)
 
 
@@ -122,15 +131,22 @@ if prompt:
     mensajes = ([{"role": "system", "content": system_prompt()}]
                 + st.session_state["chat"])
     with st.chat_message("assistant", avatar="🤖"):
-        try:
-            salida = st.write_stream(
-                llm.stream(claves, mensajes, modelo=modelo))
-        except llm.LLMError as e:
-            salida = None
-            st.error(str(e))
-        except Exception as e:  # noqa: BLE001
-            salida = None
-            st.error(f"{type(e).__name__}: {e}")
+        salida = None
+        for intento in range(2):
+            try:
+                salida = st.write_stream(
+                    llm.stream(claves, mensajes, modelo=modelo))
+                break
+            except llm.LLMError as e:
+                if "429" in str(e) and intento == 0:
+                    st.warning("⏳ Groq está al límite de tokens por minuto: "
+                               "espero 65 s y reintento (las 4 keys agotadas).")
+                    time.sleep(65)
+                    continue
+                st.error(str(e))
+            except Exception as e:  # noqa: BLE001
+                st.error(f"{type(e).__name__}: {e}")
+                break
 
     if salida:
         # --- extraer protocolos [[NOTA: ...]] y [[ELEGIDOS: ...]] ---

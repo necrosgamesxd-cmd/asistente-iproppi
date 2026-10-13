@@ -109,6 +109,33 @@ def plantilla(nombre, hoy):
 """
 
 
+def ficha_financiera(nombre, hoy, campos, detalle=""):
+    """Ficha nueva llena con los datos del formulario de alta (HTML).
+
+    campos: {'RUT': '…', 'Renta líquida': '$1.800.000', …} — solo las claves
+    que existan como fila '| Campo | |' de la plantilla y con valor no vacío.
+    detalle: markdown de la sección 7 (tablas de deudas/activos/cuentas y
+    los cálculos). -> ficha completa (str)
+    """
+    texto = plantilla(nombre, hoy)
+    for clave, valor in campos.items():
+        v = re.sub(r"\s+", " ", str(valor or "")).strip()
+        if not v:
+            continue
+        v = v.replace("|", "\\|")  # un valor con '|' rompería la tabla
+        patron = re.compile(rf"(\|\s*{re.escape(clave)}\s*\|\s*)\|")
+        texto, n = patron.subn(lambda m: f"{m.group(1)}{v} |", texto, count=1)
+        if not n:  # fila no está en la plantilla: se ignora silenciosamente
+            continue
+    texto = texto.replace("**Estado:** En seguimiento",
+                          "**Estado:** Nuevo")
+    if detalle:
+        texto = (texto.rstrip("\n")
+                 + f"\n\n## 7. Ficha financiera (alta — {hoy})\n\n"
+                 + detalle.rstrip() + "\n")
+    return texto
+
+
 # -------------------------------------------------------------------- parseo
 def parsear(texto):
     """-> (datos de las tablas '| Campo | Dato |', resumen de 'Qué busca')."""
@@ -247,6 +274,14 @@ class Almacen:
     def transcribir(self, carpeta, fecha, texto, titulo=""):
         raise NotImplementedError
 
+    def leer_archivo(self, carpeta, nombre):
+        """Lee un archivo auxiliar de la carpeta (ej: brochure.txt). -> str | None"""
+        raise NotImplementedError
+
+    def escribir_archivo(self, carpeta, nombre, texto, mensaje):
+        """Guarda un archivo auxiliar en la carpeta. -> {'ok', 'sha'?}"""
+        raise NotImplementedError
+
     def raiz(self):
         return self.RAIZ
 
@@ -291,6 +326,20 @@ class AlmacenLocal(Almacen):
             f.write(f"# Transcripción {fecha} — {carpeta}\n\n"
                     + (f"**{titulo}**\n\n" if titulo else "") + texto)
         return {"ok": True}
+
+    def leer_archivo(self, carpeta, nombre):
+        path = os.path.join(self._dir(carpeta), nombre)
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def escribir_archivo(self, carpeta, nombre, texto, mensaje):
+        os.makedirs(self._dir(carpeta), exist_ok=True)
+        with open(os.path.join(self._dir(carpeta), nombre), "w",
+                  encoding="utf-8") as f:
+            f.write(texto)
+        return {"ok": True, "sha": None}
 
 
 # ------------------------------------------------------------ almacén GitHub
@@ -386,6 +435,24 @@ class AlmacenGitHub(Almacen):
         if not r.ok:
             raise AlmacenError(f"GitHub transcripción: HTTP {r.status_code}")
         return {"ok": True}
+
+    def leer_archivo(self, carpeta, nombre):
+        contenido, _ = self._obtener(f"{self.RAIZ}/{carpeta}/{nombre}")
+        return contenido
+
+    def escribir_archivo(self, carpeta, nombre, texto, mensaje):
+        path = f"{self.RAIZ}/{carpeta}/{nombre}"
+        _, sha = self._obtener(path)
+        payload = {
+            "message": mensaje,
+            "content": base64.b64encode(texto.encode("utf-8")).decode("ascii"),
+        }
+        if sha:
+            payload["sha"] = sha
+        r = self._metodo("PUT", path, json=payload)
+        if not r.ok:
+            raise AlmacenError(f"GitHub archivo: HTTP {r.status_code} {r.text[:120]}")
+        return {"ok": True, "sha": r.json().get("content", {}).get("sha")}
 
 
 # ------------------------------------------------------------------ fábrica

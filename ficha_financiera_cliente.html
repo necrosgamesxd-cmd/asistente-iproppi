@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ficha Financiera Iproppi</title>
+<style>
+:root{--blue:#222;--ink:#111;--muted:#666;--line:#D9D9D9;--bg:#F4F4F4;--white:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif}
+.wrap{max-width:1050px;margin:0 auto;padding:28px 18px 50px}
+.header{background:#fff;border-radius:18px;padding:22px 24px;margin-bottom:18px;box-shadow:0 6px 24px rgba(17,24,39,.07);display:flex;align-items:center;justify-content:space-between;gap:20px}
+.brand{display:flex;align-items:center;gap:0}
+.logo{width:48px;height:48px;border-radius:12px;background:#111;color:#fff;display:grid;place-items:center;font-weight:800;font-size:20px}
+h1{margin:0;font-size:25px}
+.sub{margin-top:5px;color:var(--muted);font-size:13px}
+.actions{display:flex;gap:9px;flex-wrap:wrap}
+button{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer}
+.primary{background:#111;color:#fff}.secondary{background:#E9E9E9;color:#111}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:16px}
+.section-title{display:flex;align-items:center;gap:10px;margin-bottom:17px}
+.num{width:30px;height:30px;border-radius:9px;background:#EAEAEA;color:#111;display:grid;place-items:center;font-weight:800;font-size:13px}
+h2{font-size:17px;margin:0}.hint{color:var(--muted);font-size:12px;margin:3px 0 0}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.field label{display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px}
+input,select{width:100%;padding:11px 12px;border:1px solid #D7DCE3;border-radius:10px;background:#fff;font:inherit;outline:none}
+input:focus,select:focus{border-color:#777;box-shadow:0 0 0 3px rgba(0,0,0,.08)}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;min-width:650px}
+th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:12px}
+th{background:#F8FAFC;color:#4B5563}
+tr:last-child td{border-bottom:0}
+.icon-btn{background:#F3F4F6;color:#374151;padding:7px 10px}
+.add-row{margin-top:11px}
+.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:15px}
+.metric{background:#F8FAFC;border:1px solid var(--line);border-radius:13px;padding:15px}
+.metric .label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.metric .value{font-size:22px;font-weight:800;margin-top:5px}
+.metric.blue{background:#EFEFEF;border-color:#CFCFCF}.metric.blue .value{color:#111}
+.formula{font-size:11px;color:var(--muted);margin-top:10px}
+.footer-note{text-align:center;color:var(--muted);font-size:11px;margin-top:22px}
+@media(max-width:720px){.grid,.grid3,.summary{grid-template-columns:1fr}.header{align-items:flex-start;flex-direction:column}.actions{width:100%}}
+@media print{
+body{background:#fff}.wrap{max-width:none;padding:0}.header,.card{box-shadow:none;border:0}.actions,.add-row,.remove-col{display:none!important}
+input,select{border:0;padding:0}.card{break-inside:avoid;margin-bottom:8px;padding:10px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="header">
+    <div class="brand">
+      
+      <div><h1>Ficha Financiera Cliente</h1><div class="sub">Estado de situación financiera del cliente</div></div>
+    </div>
+    <div class="actions">
+      <button class="secondary" onclick="window.print()">Imprimir / PDF</button>
+      <button class="primary" onclick="limpiar()">Limpiar ficha</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="section-title"><div class="num">01</div><div><h2>Datos del cliente</h2><div class="hint">Información de identificación y contacto.</div></div></div>
+    <div class="grid">
+      <div class="field"><label>Nombre</label><input id="nombre"></div>
+      <div class="field"><label>Teléfono</label><input id="telefono"></div>
+      <div class="field"><label>Correo</label><input id="correo" type="email"></div>
+      <div class="field"><label>RUT</label><input id="rut"></div>
+      <div class="field"><label>Estado civil</label><input id="estadoCivil"></div>
+      <div class="field"><label>Profesión</label><input id="profesion"></div>
+      <div class="field" style="grid-column:1/-1"><label>Dirección</label><input id="direccion"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-title"><div class="num">02</div><div><h2>Ingresos y renta</h2><div class="hint">Ingresa los montos mensuales del cliente.</div></div></div>
+    <div class="grid">
+      <div class="field"><label>Renta ($)</label><input id="renta" class="money" inputmode="numeric" value="0"></div>
+      <div class="field"><label>Boleta ($)</label><input id="boleta" class="money" inputmode="numeric" value="0"></div>
+      <div class="field"><label>Pensiones ($)</label><input id="pensiones" class="money" inputmode="numeric" value="0"></div>
+      <div class="field"><label>Arriendos ($)</label><input id="arriendos" class="money" inputmode="numeric" value="0"></div>
+    </div>
+    <div class="summary" style="grid-template-columns:1fr">
+      <div class="metric blue"><div class="label">Valor estimado de propiedad</div><div class="value" id="propUF">0 UF</div></div>
+    </div>
+    <div class="grid" style="margin-top:13px">
+      <div class="field">
+        <label>Valor UF ($)</label>
+        <input id="valorUF" class="money" inputmode="numeric" value="41000">
+      </div>
+    </div>
+    <div class="formula">Cálculo: (renta × 60) / valor UF = financiamiento estimado (80%). Luego × 1,2 = valor total estimado de propiedad.</div>
+  </section>
+
+  <section class="card">
+    <div class="section-title"><div class="num">03</div><div><h2>Capacidad de inversión</h2><div class="hint">Recursos disponibles declarados por el cliente.</div></div></div>
+    <div class="grid">
+      <div class="field"><label>Ahorro para pie ($)</label><input id="ahorro" class="money" inputmode="numeric" value="0"></div>
+      <div class="field"><label>CAM ($)</label><input id="cam" class="money" inputmode="numeric" value="0"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-title"><div class="num">04</div><div><h2>Deudas vigentes</h2><div class="hint">Registra las obligaciones actuales del cliente.</div></div></div>
+    <div class="table-wrap"><table id="deudas"><thead><tr><th>Tipo deuda</th><th>Institución</th><th>Cuota ($)</th><th>Total ($)</th><th>Nº cuotas</th><th class="remove-col"></th></tr></thead><tbody></tbody></table></div>
+    <button class="secondary add-row" onclick="agregarDeuda()">+ Agregar deuda</button>
+    <div class="summary" style="grid-template-columns:1fr"><div class="metric"><div class="label">Carga mensual por deudas</div><div class="value" id="totalCuotas">$0</div></div></div>
+  </section>
+
+  <section class="card">
+    <div class="section-title"><div class="num">05</div><div><h2>Activos</h2><div class="hint">Registra los activos declarados y su valor.</div></div></div>
+    <div class="table-wrap"><table id="activos"><thead><tr><th>Tipo de activo</th><th>Valor activo ($)</th><th class="remove-col"></th></tr></thead><tbody></tbody></table></div>
+    <button class="secondary add-row" onclick="agregarActivo()">+ Agregar activo</button>
+    <div class="summary" style="grid-template-columns:1fr"><div class="metric"><div class="label">Total activos</div><div class="value" id="totalActivos">$0</div></div></div>
+  </section>
+
+  <section class="card">
+    <div class="section-title"><div class="num">06</div><div><h2>Cuentas</h2><div class="hint">Registra las cuentas e instituciones informadas.</div></div></div>
+    <div class="table-wrap"><table id="cuentas"><thead><tr><th>Tipo de cuenta</th><th>Institución</th><th class="remove-col"></th></tr></thead><tbody></tbody></table></div>
+    <button class="secondary add-row" onclick="agregarCuenta()">+ Agregar cuenta</button>
+  </section>
+
+  <div class="footer-note">Ficha financiera de uso comercial · Iproppi</div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const num = v => {
+    if (v == null) return 0;
+    const s = String(v).replace(/\./g,'').replace(/,/g,'.').replace(/[^\d.-]/g,'');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const money = n => '$' + Math.round(n||0).toLocaleString('es-CL');
+  const uf = n => (Math.round((n||0)*100)/100).toLocaleString('es-CL',{minimumFractionDigits:0,maximumFractionDigits:2}) + ' UF';
+
+  function calcular(){
+    const renta=num($('renta').value);
+    const valorUF=num($('valorUF').value) || 41000;
+    // Lógica del Excel: financiamiento estimado = (renta × 60) / valor UF
+    const financiamiento = (renta*60)/valorUF;
+    // El financiamiento representa el 80%; ×1,2 lleva al 100%.
+    const propiedad = financiamiento*1.2;
+    $('propUF').textContent=uf(propiedad);
+    let cuotas=0;
+    document.querySelectorAll('#deudas tbody input.cuota').forEach(x=>cuotas+=num(x.value));
+    $('totalCuotas').textContent=money(cuotas);
+    let activos=0;
+    document.querySelectorAll('#activos tbody input.valor').forEach(x=>activos+=num(x.value));
+    $('totalActivos').textContent=money(activos);
+  }
+  function bindMoney(input){ input.addEventListener('input',()=>{if(input.classList.contains('money')){input.value=input.value.replace(/[^\d]/g,'')} calcular();});}
+  function rowButton(tr){const td=tr.insertCell(-1);td.className='remove-col';const b=document.createElement('button');b.className='icon-btn';b.type='button';b.textContent='Eliminar';b.onclick=()=>{tr.remove();calcular()};td.appendChild(b)}
+
+  window.agregarDeuda=function(){
+    const tr=document.querySelector('#deudas tbody').insertRow();
+    tr.insertCell().innerHTML='<input placeholder="Ej. Hipotecario">';
+    tr.insertCell().innerHTML='<input placeholder="Institución">';
+    tr.insertCell().innerHTML='<input class="cuota" inputmode="numeric" placeholder="$0">';
+    tr.insertCell().innerHTML='<input inputmode="numeric" placeholder="$0">';
+    tr.insertCell().innerHTML='<input inputmode="numeric" placeholder="0">';
+    rowButton(tr);
+    tr.querySelectorAll('input').forEach(i=>{if(i.classList.contains('cuota'))i.addEventListener('input',calcular)});
+  };
+  window.agregarActivo=function(){
+    const tr=document.querySelector('#activos tbody').insertRow();
+    tr.insertCell().innerHTML='<input placeholder="Ej. Vehículo">';
+    tr.insertCell().innerHTML='<input class="valor" inputmode="numeric" placeholder="$0">';
+    rowButton(tr);
+    tr.querySelector('.valor').addEventListener('input',calcular);
+  };
+  window.agregarCuenta=function(){
+    const tr=document.querySelector('#cuentas tbody').insertRow();
+    tr.insertCell().innerHTML='<input placeholder="Ej. Corriente">';
+    tr.insertCell().innerHTML='<input placeholder="Institución">';
+    rowButton(tr);
+  };
+  window.limpiar=function(){
+    if(!confirm('¿Limpiar toda la ficha?')) return;
+    document.querySelectorAll('input').forEach(i=>{if(i.classList.contains('money'))i.value='0';else i.value=''});
+    document.querySelector('#deudas tbody').innerHTML='';
+    document.querySelector('#activos tbody').innerHTML='';
+    document.querySelector('#cuentas tbody').innerHTML='';
+    calcular();
+  };
+  document.querySelectorAll('input.money').forEach(bindMoney);
+  ['renta','boleta','pensiones','arriendos','ahorro','cam','valorUF'].forEach(id=>$(id).addEventListener('input',calcular));
+  agregarDeuda(); agregarActivo(); agregarCuenta(); calcular();
+})();
+</script>
+</body>
+</html>

@@ -3,3 +3,7 @@ streamlit>=1.50
 requests>=2.31
 openpyxl>=3.1
 pandas>=2.0
+
+# Fichas de proyectos: texto de brochures (PDF) y investigación web
+pypdf>=5.0
+ddgs>=9.0
